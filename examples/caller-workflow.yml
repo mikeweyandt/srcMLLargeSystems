@@ -1,0 +1,54 @@
+# Copy this file into the srcML repo (or any repo that builds srcml) at
+# .github/workflows/large-system-test.yml, then adjust <OWNER> below.
+
+name: Large-system regression (Linux kernel)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build g++ dpkg-dev \
+            libarchive-dev libcurl4-openssl-dev \
+            libxml2-dev libxml2-utils libxslt1-dev
+
+      - name: Build srcml
+        run: |
+          cmake -S . -B build --preset ci-linux
+          cmake --build build -j
+
+      - name: Package .deb via CPack
+        working-directory: build
+        run: cpack -G DEB
+
+      - name: Collect installer artifacts
+        run: |
+          mkdir -p installer
+          cp build/dist/srcml_*.deb       installer/
+          cp build/dist/srcml-dev_*.deb   installer/ 2>/dev/null || true
+          ls -la installer/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: srcml-installer
+          path: installer/
+          if-no-files-found: error
+
+  regression:
+    needs: build
+    uses: <OWNER>/srcMLLargeSystemTests/.github/workflows/regression-test.yml@mainline
+    with:
+      srcml-installer-artifact-name: srcml-installer
+      fail-on-regression: true

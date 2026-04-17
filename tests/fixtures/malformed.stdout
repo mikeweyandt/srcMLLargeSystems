@@ -1,0 +1,8 @@
+this output is unexpected — Errors: label is present but the per-unit records are garbled
+
+Errors:
+some text that does not match the expected LANG\tURL\tFILE\tUNIT header line at all
+nor does this one
+or this
+
+Counts: Total         5    10	  50%

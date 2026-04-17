@@ -1,0 +1,227 @@
+name: srcML regression test
+
+on:
+  workflow_call:
+    inputs:
+      srcml-installer-artifact-name:
+        description: "Actions artifact containing the srcml installer package(s) (e.g. srcml_*.deb)"
+        required: true
+        type: string
+      srcml-installer-artifact-run-id:
+        description: "Run ID to download the artifact from. Leave empty for the current run."
+        required: false
+        type: string
+        default: ""
+      baseline-release-tag:
+        description: "Override current_baseline_release from config"
+        required: false
+        type: string
+        default: ""
+      fail-on-regression:
+        description: "Fail the workflow if any regressions are detected"
+        required: false
+        type: boolean
+        default: true
+      artifact-name:
+        description: "Name for the uploaded results artifact"
+        required: false
+        type: string
+        default: "srcml-regression-results"
+    outputs:
+      regressions-found:
+        description: "'true' if regressions detected, else 'false'"
+        value: ${{ jobs.test.outputs.regressed }}
+      summary:
+        description: "One-line machine-readable summary"
+        value: ${{ jobs.test.outputs.summary }}
+
+  workflow_dispatch:
+    inputs:
+      srcml-installer-artifact-name:
+        description: "Actions artifact containing the srcml installer package(s) (e.g. srcml_*.deb)"
+        required: true
+        default: "srcml-installer"
+      srcml-installer-artifact-run-id:
+        description: "Run ID of the workflow that uploaded the artifact"
+        required: false
+        default: ""
+      baseline-release-tag:
+        description: "Override current_baseline_release"
+        required: false
+        default: ""
+      fail-on-regression:
+        description: "Fail on regression"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # hardcoded so cross-repo `gh release download` works regardless of caller.
+  # update if this repo is transferred to a different org.
+  BASELINE_REPO: ${{ github.repository_owner }}/srcMLLargeSystemTests
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    outputs:
+      regressed: ${{ steps.decide.outputs.regressed }}
+      summary:   ${{ steps.decide.outputs.summary }}
+    steps:
+      - name: Checkout this repo (for config + scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BASELINE_REPO }}
+          path: srcml-large-system-tests
+
+      - name: Install host deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zstd jq python3
+
+      - name: Install mikefarah yq
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Resolve baseline tag from config
+        id: cfg
+        run: |
+          set -euo pipefail
+          cd srcml-large-system-tests
+          TAG_OVERRIDE="${{ inputs.baseline-release-tag }}"
+          if [ -n "$TAG_OVERRIDE" ]; then
+            TAG="$TAG_OVERRIDE"
+          else
+            TAG="$(yq -p toml '.current_baseline_release' config/baseline.toml)"
+          fi
+          echo "release_tag=$TAG"          >> "$GITHUB_OUTPUT"
+          echo "zst_name=${TAG}.xml.zst"   >> "$GITHUB_OUTPUT"
+          echo "manifest_name=${TAG}.manifest.json" >> "$GITHUB_OUTPUT"
+
+      - name: Download srcml installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.srcml-installer-artifact-name }}
+          path: srcml-installer
+          run-id: ${{ inputs.srcml-installer-artifact-run-id != '' && inputs.srcml-installer-artifact-run-id || github.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Install srcml from .deb
+        run: |
+          set -euxo pipefail
+          shopt -s nullglob
+          debs=( srcml-installer/srcml_*.deb srcml-installer/srcml-dev_*.deb )
+          if [ "${#debs[@]}" -eq 0 ]; then
+            echo "::error::artifact does not contain any srcml*.deb files"
+            ls -la srcml-installer/ || true
+            exit 1
+          fi
+          echo "Installing: ${debs[*]}"
+          sudo apt-get update
+          sudo apt-get install -y "${debs[@]}"
+          srcml --version
+          command -v srcml
+
+      - name: Download baseline release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.cfg.outputs.release_tag }}
+          ZST_NAME: ${{ steps.cfg.outputs.zst_name }}
+          MANIFEST_NAME: ${{ steps.cfg.outputs.manifest_name }}
+        run: |
+          set -euxo pipefail
+          gh release download "$TAG" \
+            --repo "$BASELINE_REPO" \
+            --pattern "$ZST_NAME" \
+            --pattern "$MANIFEST_NAME"
+
+      - name: Verify sha256
+        env:
+          ZST_NAME: ${{ steps.cfg.outputs.zst_name }}
+          MANIFEST_NAME: ${{ steps.cfg.outputs.manifest_name }}
+        run: |
+          set -euo pipefail
+          EXPECTED="$(jq -r '.sha256' "$MANIFEST_NAME")"
+          ACTUAL="$(sha256sum "$ZST_NAME" | awk '{print $1}')"
+          echo "expected: $EXPECTED"
+          echo "actual:   $ACTUAL"
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "::error::sha256 mismatch for baseline asset"
+            exit 1
+          fi
+
+      - name: Decompress baseline
+        env:
+          ZST_NAME: ${{ steps.cfg.outputs.zst_name }}
+        run: |
+          zstd -d "$ZST_NAME" -o baseline.xml
+          ls -lh baseline.xml
+
+      - name: Run parser-test
+        env:
+          SRCML_BIN: srcml
+          BASELINE: baseline.xml
+          OUT_DIR: results
+        run: ./srcml-large-system-tests/scripts/run_parser_test.sh
+
+      - name: Summarize
+        env:
+          MANIFEST_NAME: ${{ steps.cfg.outputs.manifest_name }}
+        run: |
+          python3 srcml-large-system-tests/scripts/summarize_parser_test.py \
+            results/parser-test.stdout \
+            --out results/grouped-failures.md \
+            --summary results/summary.txt
+          cp "$MANIFEST_NAME" results/
+
+      - name: Decide pass/fail
+        id: decide
+        run: |
+          set -euo pipefail
+          EXIT_CODE="$(cat results/exit-code.txt)"
+          SUMMARY_LINE="$(cat results/summary.txt | head -n1)"
+          FAILED="$(grep -oP 'failed=\K[0-9]+' results/summary.txt || echo 0)"
+          HAS_ERRORS_SECTION="false"
+          if grep -q '^Errors:' results/parser-test.stdout; then
+            HAS_ERRORS_SECTION="true"
+          fi
+          REGRESSED="false"
+          if [ "$EXIT_CODE" != "0" ] || [ "$FAILED" -gt 0 ] || [ "$HAS_ERRORS_SECTION" = "true" ]; then
+            REGRESSED="true"
+          fi
+          echo "regressed=$REGRESSED"           >> "$GITHUB_OUTPUT"
+          echo "summary=$SUMMARY_LINE"          >> "$GITHUB_OUTPUT"
+          {
+            echo "## srcML regression test"
+            echo ""
+            echo "- **Baseline:** \`${{ steps.cfg.outputs.release_tag }}\`"
+            echo "- **Result:** $([ "$REGRESSED" = "true" ] && echo "regressions found" || echo "clean")"
+            echo "- **Summary:** \`$SUMMARY_LINE\`"
+            echo ""
+            echo "### Details"
+            echo ""
+            head -n 200 results/grouped-failures.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: results/
+          retention-days: 30
+
+      - name: Fail on regression
+        if: ${{ inputs.fail-on-regression && steps.decide.outputs.regressed == 'true' }}
+        run: |
+          echo "::error::srcml --parser-test reported regressions against baseline ${{ steps.cfg.outputs.release_tag }}"
+          exit 1
