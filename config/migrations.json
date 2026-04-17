@@ -10,10 +10,14 @@
     },
     {
       "name": "argument-expr-name-embed",
-      "description": "Older srcml left argument contents bare; newer versions wrap them in <expr>, and bare identifiers additionally gain a <name> wrapper inside that <expr>.",
+      "description": "Older srcml left argument contents bare; newer versions wrap them in <expr>, and bare identifiers additionally gain a <name> wrapper inside that <expr>. Bare 2- and 3-term flag-style expressions like `A | B` or `A | B | C` (using bitwise/logical/arithmetic ops) also get per-token <name>/<operator> markup.",
       "replacements": [
         ["<argument>", "<argument><expr>"],
         ["</argument>", "</expr></argument>"],
+        {"regex": "<argument><expr>([A-Za-z_][A-Za-z0-9_]*)(\\s*)(\\|\\||&&|[|&^+\\-*/])(\\s*)([A-Za-z_][A-Za-z0-9_]*)(\\s*)(\\|\\||&&|[|&^+\\-*/])(\\s*)([A-Za-z_][A-Za-z0-9_]*)</expr></argument>",
+         "replace": "<argument><expr><name>\\1</name>\\2<operator>\\3</operator>\\4<name>\\5</name>\\6<operator>\\7</operator>\\8<name>\\9</name></expr></argument>"},
+        {"regex": "<argument><expr>([A-Za-z_][A-Za-z0-9_]*)(\\s*)(\\|\\||&&|[|&^+\\-*/])(\\s*)([A-Za-z_][A-Za-z0-9_]*)</expr></argument>",
+         "replace": "<argument><expr><name>\\1</name>\\2<operator>\\3</operator>\\4<name>\\5</name></expr></argument>"},
         {"regex": "<argument><expr>([A-Za-z_][A-Za-z0-9_]*)</expr></argument>",
          "replace": "<argument><expr><name>\\1</name></expr></argument>"}
       ]
