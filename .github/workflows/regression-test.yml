@@ -121,7 +121,7 @@ jobs:
         run: |
           set -euxo pipefail
           shopt -s nullglob
-          debs=( srcml-installer/srcml_*.deb srcml-installer/srcml-dev_*.deb )
+          debs=( ./srcml-installer/srcml_*.deb ./srcml-installer/srcml-dev_*.deb )
           if [ "${#debs[@]}" -eq 0 ]; then
             echo "::error::artifact does not contain any srcml*.deb files"
             ls -la srcml-installer/ || true
