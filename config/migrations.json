@@ -2,12 +2,20 @@
   "patterns": [
     {
       "name": "macro-to-call-expr",
-      "description": "Older srcml emitted __SYSCALL-style identifiers as <macro>; newer versions mark them as <expr><call>. Arguments also gained an inner <expr> wrapper.",
+      "description": "Older srcml emitted foo(x)-style references at statement scope as <macro>; newer versions mark them as <expr><call>.",
       "replacements": [
         ["<macro>", "<expr><call>"],
-        ["</macro>", "</call></expr>"],
+        ["</macro>", "</call></expr>"]
+      ]
+    },
+    {
+      "name": "argument-expr-name-embed",
+      "description": "Older srcml left argument contents bare; newer versions wrap them in <expr>, and bare identifiers additionally gain a <name> wrapper inside that <expr>.",
+      "replacements": [
         ["<argument>", "<argument><expr>"],
-        ["</argument>", "</expr></argument>"]
+        ["</argument>", "</expr></argument>"],
+        {"regex": "<argument><expr>([A-Za-z_][A-Za-z0-9_]*)</expr></argument>",
+         "replace": "<argument><expr><name>\\1</name></expr></argument>"}
       ]
     }
   ]

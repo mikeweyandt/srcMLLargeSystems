@@ -67,11 +67,16 @@ class Failure:
 class MigrationPattern:
     name: str
     description: str
-    replacements: list[tuple[str, str]]
+    # Each replacement is ("literal"|"regex", src, dst).
+    # Regex dst uses Python backref syntax (\1, \g<name>).
+    replacements: list[tuple[str, str, str]]
 
     def apply(self, text: str) -> str:
-        for src, dst in self.replacements:
-            text = text.replace(src, dst)
+        for kind, src, dst in self.replacements:
+            if kind == "regex":
+                text = re.sub(src, dst, text)
+            else:
+                text = text.replace(src, dst)
         return text
 
 
@@ -81,7 +86,11 @@ def load_migrations(path: Path) -> list[MigrationPattern]:
     File shape:
         {"patterns": [
             {"name": "...", "description": "...",
-             "replacements": [["from", "to"], ...]},
+             "replacements": [
+                 ["from", "to"],                            # literal string replace
+                 {"from": "...", "to": "..."},              # literal (dict form)
+                 {"regex": "...", "replace": "..."}         # regex replace
+             ]},
             ...
         ]}
     """
@@ -91,21 +100,39 @@ def load_migrations(path: Path) -> list[MigrationPattern]:
         name = p.get("name") or "unnamed"
         desc = p.get("description", "")
         raw_reps = p.get("replacements") or []
-        reps: list[tuple[str, str]] = []
+        reps: list[tuple[str, str, str]] = []
         for r in raw_reps:
             if isinstance(r, dict):
-                reps.append((r["from"], r["to"]))
+                if "regex" in r:
+                    reps.append(("regex", r["regex"], r["replace"]))
+                else:
+                    reps.append(("literal", r["from"], r["to"]))
             else:
-                reps.append((r[0], r[1]))
+                reps.append(("literal", r[0], r[1]))
         out.append(MigrationPattern(name=name, description=desc, replacements=reps))
     return out
 
 
 def classify_migration(f: Failure, patterns: list[MigrationPattern]) -> str:
-    """Return the name of the first pattern whose replacements equalize the two regions, or ""."""
+    """Return the name (or composite name) of the pattern(s) that equalize the two regions.
+
+    Tries each pattern alone first. If none match individually, applies patterns
+    cumulatively in declaration order; if that equalizes and more than one pattern
+    actually changed the text, returns their names joined with '+'.
+    """
     for p in patterns:
         if p.apply(f.test_region) == f.srcml_region:
             return p.name
+
+    text = f.test_region
+    applied: list[str] = []
+    for p in patterns:
+        new_text = p.apply(text)
+        if new_text != text:
+            applied.append(p.name)
+            text = new_text
+    if text == f.srcml_region and len(applied) > 1:
+        return "+".join(applied)
     return ""
 
 
