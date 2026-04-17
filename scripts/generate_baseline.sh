@@ -12,7 +12,7 @@
 set -euo pipefail
 
 : "${SRCML_BIN:=srcml}"
-: "${SRCML_FLAGS:=-r -j 4}"
+: "${SRCML_FLAGS:=-r -j 4 --src-encoding=UTF-8}"
 : "${INPUT_DIR:?INPUT_DIR required}"
 : "${OUTPUT_XML:?OUTPUT_XML required}"
 : "${OUTPUT_ZST:?OUTPUT_ZST required}"

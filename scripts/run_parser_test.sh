@@ -19,7 +19,7 @@ echo "srcml version:"
 "$SRCML_BIN" --version || true
 
 set +e
-"$SRCML_BIN" --parser-test --no-color "$BASELINE" \
+"$SRCML_BIN" --parser-test --no-color --src-encoding=UTF-8 "$BASELINE" \
   > "$OUT_DIR/parser-test.stdout" \
   2> "$OUT_DIR/parser-test.stderr"
 rc=$?
