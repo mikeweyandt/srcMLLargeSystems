@@ -60,7 +60,6 @@ class Failure:
     signature: str = ""
     signature_hash: str = ""
     source_filename: str = ""
-    source_language: str = ""
     migrated_by: str = ""  # name of the migration pattern that made this failure equivalent
 
 
@@ -216,24 +215,18 @@ def _extract_failures(errors_blob: str, report: ParsedReport) -> None:
         report.failures.append(f)
 
 
-def lookup_unit_metadata(archive_path: Path, needed: set[int]) -> dict[int, tuple[str, str]]:
-    """Return {unit_no: (filename, language)} for the requested units.
+def lookup_unit_metadata(archive_path: Path, needed: set[int]) -> dict[int, str]:
+    """Return {unit_no: filename} for the requested units.
 
     Unit numbers are 1-indexed positions of nested <unit> elements under the root,
     matching how `srcml --parser-test` numbers them. Stops reading once the highest
     needed unit has been seen. Returns an empty dict on any parse error so the
     report still renders without this annotation.
-
-    Both fields come from the archive's actual `<unit>` attributes, which is the
-    authoritative source: the language reported in parser-test output is unreliable
-    in srcml 1.1.0 — the `unit_language` static in ParserTest.cpp is only updated
-    when the archive filename changes, so for a single-archive run every failure is
-    labeled with the first unit's language regardless of the real unit.
     """
     if not needed:
         return {}
     max_needed = max(needed)
-    result: dict[int, tuple[str, str]] = {}
+    result: dict[int, str] = {}
     count = 0
     root_seen = False
 
@@ -248,10 +241,7 @@ def lookup_unit_metadata(archive_path: Path, needed: set[int]) -> dict[int, tupl
                     continue
                 count += 1
                 if count in needed:
-                    result[count] = (
-                        elem.attrib.get("filename", ""),
-                        elem.attrib.get("language", ""),
-                    )
+                    result[count] = elem.attrib.get("filename", "")
                 if count >= max_needed:
                     break
             else:  # end
@@ -300,28 +290,7 @@ def render_grouped_markdown(report: ParsedReport) -> str:
         lines.append(f"- **Suppressed by migrations**: {len(migrated)}")
         lines.append(f"- **Remaining failures**: {len(real)}")
 
-    non_migrated = [f for f in report.failures if not f.migrated_by]
-    annotated_failures = [f for f in non_migrated if f.source_language]
-    have_archive_lang = bool(annotated_failures)
-
-    if have_archive_lang:
-        by_real_lang: dict[str, int] = defaultdict(int)
-        for f in non_migrated:
-            by_real_lang[f.source_language or f.language] += 1
-        lines.append("")
-        lines.append("## Failures by language (from archive `language=` attribute, migrated excluded)")
-        lines.append("")
-        lines.append("| Language | Failed |")
-        lines.append("|---|---:|")
-        for lang, failed in sorted(by_real_lang.items()):
-            lines.append(f"| {lang} | {failed} |")
-        lines.append("")
-        lines.append(
-            "> Note: `srcml --parser-test` v1.1.0 reports a single stuck language for every "
-            "failing unit (the first unit's language). The table above is recomputed from each "
-            "failing unit's archive `language=` attribute."
-        )
-    elif report.per_language_totals:
+    if report.per_language_totals:
         lines.append("")
         lines.append("## Failures by language (reported by parser-test)")
         lines.append("")
@@ -329,11 +298,6 @@ def render_grouped_markdown(report: ParsedReport) -> str:
         lines.append("|---|---:|---:|")
         for lang, (failed, total) in sorted(report.per_language_totals.items()):
             lines.append(f"| {lang} | {failed} | {total} |")
-        lines.append("")
-        lines.append(
-            "> Note: srcml 1.1.0's per-language row is unreliable — it pins to the first "
-            "unit's language. Pass `--archive` to recompute from real unit attributes."
-        )
 
     if report.parse_warning:
         lines.append("")
@@ -373,12 +337,9 @@ def render_grouped_markdown(report: ParsedReport) -> str:
         lines.append("All failures are accounted for by migration patterns.")
         return "\n".join(lines) + "\n"
 
-    def group_lang(f: Failure) -> str:
-        return f.source_language or f.language
-
     groups: dict[tuple[str, str], list[Failure]] = defaultdict(list)
     for f in real:
-        groups[(group_lang(f), f.signature_hash)].append(f)
+        groups[(f.language, f.signature_hash)].append(f)
 
     ranked = sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
 
@@ -448,9 +409,7 @@ def main(argv: list[str] | None = None) -> int:
         needed = {f.unit for f in report.failures}
         meta = lookup_unit_metadata(Path(args.archive), needed)
         for f in report.failures:
-            fn, lang = meta.get(f.unit, ("", ""))
-            f.source_filename = fn
-            f.source_language = lang
+            f.source_filename = meta.get(f.unit, "")
 
     patterns: list[MigrationPattern] = []
     if args.migrations:
