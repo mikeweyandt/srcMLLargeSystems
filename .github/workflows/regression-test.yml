@@ -57,6 +57,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: regression-${{ github.workflow }}-${{ github.ref }}

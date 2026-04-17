@@ -26,6 +26,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: full-pipeline-${{ github.ref }}-${{ inputs.srcml_ref }}
