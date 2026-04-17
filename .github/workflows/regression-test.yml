@@ -183,7 +183,8 @@ jobs:
             results/parser-test.stdout \
             --out results/grouped-failures.md \
             --summary results/summary.txt \
-            --archive baseline.xml
+            --archive baseline.xml \
+            --migrations srcml-large-system-tests/config/migrations.json
           cp "$MANIFEST_NAME" results/
 
       - name: Decide pass/fail

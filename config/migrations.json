@@ -1,0 +1,14 @@
+{
+  "patterns": [
+    {
+      "name": "macro-to-call-expr",
+      "description": "Older srcml emitted __SYSCALL-style identifiers as <macro>; newer versions mark them as <expr><call>. Arguments also gained an inner <expr> wrapper.",
+      "replacements": [
+        ["<macro>", "<expr><call>"],
+        ["</macro>", "</call></expr>"],
+        ["<argument>", "<argument><expr>"],
+        ["</argument>", "</expr></argument>"]
+      ]
+    }
+  ]
+}

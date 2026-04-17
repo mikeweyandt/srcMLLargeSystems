@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import sys
 from collections import defaultdict
@@ -59,6 +60,54 @@ class Failure:
     signature: str = ""
     signature_hash: str = ""
     source_filename: str = ""
+    source_language: str = ""
+    migrated_by: str = ""  # name of the migration pattern that made this failure equivalent
+
+
+@dataclass
+class MigrationPattern:
+    name: str
+    description: str
+    replacements: list[tuple[str, str]]
+
+    def apply(self, text: str) -> str:
+        for src, dst in self.replacements:
+            text = text.replace(src, dst)
+        return text
+
+
+def load_migrations(path: Path) -> list[MigrationPattern]:
+    """Load migration patterns from a JSON config.
+
+    File shape:
+        {"patterns": [
+            {"name": "...", "description": "...",
+             "replacements": [["from", "to"], ...]},
+            ...
+        ]}
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    out: list[MigrationPattern] = []
+    for p in data.get("patterns", []):
+        name = p.get("name") or "unnamed"
+        desc = p.get("description", "")
+        raw_reps = p.get("replacements") or []
+        reps: list[tuple[str, str]] = []
+        for r in raw_reps:
+            if isinstance(r, dict):
+                reps.append((r["from"], r["to"]))
+            else:
+                reps.append((r[0], r[1]))
+        out.append(MigrationPattern(name=name, description=desc, replacements=reps))
+    return out
+
+
+def classify_migration(f: Failure, patterns: list[MigrationPattern]) -> str:
+    """Return the name of the first pattern whose replacements equalize the two regions, or ""."""
+    for p in patterns:
+        if p.apply(f.test_region) == f.srcml_region:
+            return p.name
+    return ""
 
 
 @dataclass
@@ -167,18 +216,24 @@ def _extract_failures(errors_blob: str, report: ParsedReport) -> None:
         report.failures.append(f)
 
 
-def lookup_unit_filenames(archive_path: Path, needed: set[int]) -> dict[int, str]:
-    """Return {unit_no: filename} for the requested units by stream-parsing archive_path.
+def lookup_unit_metadata(archive_path: Path, needed: set[int]) -> dict[int, tuple[str, str]]:
+    """Return {unit_no: (filename, language)} for the requested units.
 
     Unit numbers are 1-indexed positions of nested <unit> elements under the root,
     matching how `srcml --parser-test` numbers them. Stops reading once the highest
     needed unit has been seen. Returns an empty dict on any parse error so the
-    report still renders without filenames.
+    report still renders without this annotation.
+
+    Both fields come from the archive's actual `<unit>` attributes, which is the
+    authoritative source: the language reported in parser-test output is unreliable
+    in srcml 1.1.0 — the `unit_language` static in ParserTest.cpp is only updated
+    when the archive filename changes, so for a single-archive run every failure is
+    labeled with the first unit's language regardless of the real unit.
     """
     if not needed:
         return {}
     max_needed = max(needed)
-    result: dict[int, str] = {}
+    result: dict[int, tuple[str, str]] = {}
     count = 0
     root_seen = False
 
@@ -193,7 +248,10 @@ def lookup_unit_filenames(archive_path: Path, needed: set[int]) -> dict[int, str
                     continue
                 count += 1
                 if count in needed:
-                    result[count] = elem.attrib.get("filename", "")
+                    result[count] = (
+                        elem.attrib.get("filename", ""),
+                        elem.attrib.get("language", ""),
+                    )
                 if count >= max_needed:
                     break
             else:  # end
@@ -236,14 +294,46 @@ def render_grouped_markdown(report: ParsedReport) -> str:
     lines.append(f"- **Total units tested**: {report.total}")
     lines.append(f"- **Failed**: {report.failed}")
 
-    if report.per_language_totals:
+    migrated = [f for f in report.failures if f.migrated_by]
+    real = [f for f in report.failures if not f.migrated_by]
+    if migrated:
+        lines.append(f"- **Suppressed by migrations**: {len(migrated)}")
+        lines.append(f"- **Remaining failures**: {len(real)}")
+
+    non_migrated = [f for f in report.failures if not f.migrated_by]
+    annotated_failures = [f for f in non_migrated if f.source_language]
+    have_archive_lang = bool(annotated_failures)
+
+    if have_archive_lang:
+        by_real_lang: dict[str, int] = defaultdict(int)
+        for f in non_migrated:
+            by_real_lang[f.source_language or f.language] += 1
         lines.append("")
-        lines.append("## Failures by language")
+        lines.append("## Failures by language (from archive `language=` attribute, migrated excluded)")
+        lines.append("")
+        lines.append("| Language | Failed |")
+        lines.append("|---|---:|")
+        for lang, failed in sorted(by_real_lang.items()):
+            lines.append(f"| {lang} | {failed} |")
+        lines.append("")
+        lines.append(
+            "> Note: `srcml --parser-test` v1.1.0 reports a single stuck language for every "
+            "failing unit (the first unit's language). The table above is recomputed from each "
+            "failing unit's archive `language=` attribute."
+        )
+    elif report.per_language_totals:
+        lines.append("")
+        lines.append("## Failures by language (reported by parser-test)")
         lines.append("")
         lines.append("| Language | Failed | Total |")
         lines.append("|---|---:|---:|")
         for lang, (failed, total) in sorted(report.per_language_totals.items()):
             lines.append(f"| {lang} | {failed} | {total} |")
+        lines.append("")
+        lines.append(
+            "> Note: srcml 1.1.0's per-language row is unreliable — it pins to the first "
+            "unit's language. Pass `--archive` to recompute from real unit attributes."
+        )
 
     if report.parse_warning:
         lines.append("")
@@ -256,19 +346,44 @@ def render_grouped_markdown(report: ParsedReport) -> str:
         lines.append("```")
         return "\n".join(lines) + "\n"
 
+    if migrated:
+        by_pattern: dict[str, int] = defaultdict(int)
+        for f in migrated:
+            by_pattern[f.migrated_by] += 1
+        lines.append("")
+        lines.append("## Migrated failures (suppressed)")
+        lines.append("")
+        lines.append("| Pattern | Count |")
+        lines.append("|---|---:|")
+        for name, count in sorted(by_pattern.items(), key=lambda kv: (-kv[1], kv[0])):
+            lines.append(f"| `{name}` | {count} |")
+        lines.append("")
+        lines.append(
+            "> These failures had a known markup-level migration pattern applied and, after "
+            "substitution, the two sides matched. See `config/migrations.json` for definitions."
+        )
+
     if not report.failures:
         lines.append("")
         lines.append("No failing units — parser-test reports clean against the baseline.")
         return "\n".join(lines) + "\n"
 
+    if not real:
+        lines.append("")
+        lines.append("All failures are accounted for by migration patterns.")
+        return "\n".join(lines) + "\n"
+
+    def group_lang(f: Failure) -> str:
+        return f.source_language or f.language
+
     groups: dict[tuple[str, str], list[Failure]] = defaultdict(list)
-    for f in report.failures:
-        groups[(f.language, f.signature_hash)].append(f)
+    for f in real:
+        groups[(group_lang(f), f.signature_hash)].append(f)
 
     ranked = sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
 
     lines.append("")
-    lines.append(f"## Failure groups ({len(ranked)} unique signatures across {len(report.failures)} failing units)")
+    lines.append(f"## Failure groups ({len(ranked)} unique signatures across {len(real)} failing units)")
     lines.append("")
 
     for (lang, sig_hash), failures in ranked:
@@ -320,6 +435,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--archive", default=None,
                    help="Path to the srcML archive (e.g. baseline.xml). When provided, "
                         "the report annotates each failing unit with its source filename.")
+    p.add_argument("--migrations", default=None,
+                   help="Path to a migrations JSON file. Failures whose test region becomes "
+                        "equal to the srcml region after applying a pattern's replacements are "
+                        "classified as migrated and suppressed from the failure-groups section.")
     args = p.parse_args(argv)
 
     raw = Path(args.stdout_path).read_text(encoding="utf-8", errors="replace")
@@ -327,9 +446,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.archive and report.failures:
         needed = {f.unit for f in report.failures}
-        names = lookup_unit_filenames(Path(args.archive), needed)
+        meta = lookup_unit_metadata(Path(args.archive), needed)
         for f in report.failures:
-            f.source_filename = names.get(f.unit, "")
+            fn, lang = meta.get(f.unit, ("", ""))
+            f.source_filename = fn
+            f.source_language = lang
+
+    patterns: list[MigrationPattern] = []
+    if args.migrations:
+        patterns = load_migrations(Path(args.migrations))
+        for f in report.failures:
+            f.migrated_by = classify_migration(f, patterns)
 
     Path(args.summary).write_text(render_summary(report), encoding="utf-8")
     Path(args.out).write_text(render_grouped_markdown(report), encoding="utf-8")
