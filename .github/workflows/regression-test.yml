@@ -182,7 +182,8 @@ jobs:
           python3 srcml-large-system-tests/scripts/summarize_parser_test.py \
             results/parser-test.stdout \
             --out results/grouped-failures.md \
-            --summary results/summary.txt
+            --summary results/summary.txt \
+            --archive baseline.xml
           cp "$MANIFEST_NAME" results/
 
       - name: Decide pass/fail

@@ -40,6 +40,7 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 ERROR_HEADER_RE = re.compile(r"^([A-Za-z][A-Za-z+#0-9]*)\t([^\t\n]*)\t([^\t\n]*)\t(\d+)$")
@@ -57,6 +58,7 @@ class Failure:
     srcml_region: str
     signature: str = ""
     signature_hash: str = ""
+    source_filename: str = ""
 
 
 @dataclass
@@ -165,6 +167,43 @@ def _extract_failures(errors_blob: str, report: ParsedReport) -> None:
         report.failures.append(f)
 
 
+def lookup_unit_filenames(archive_path: Path, needed: set[int]) -> dict[int, str]:
+    """Return {unit_no: filename} for the requested units by stream-parsing archive_path.
+
+    Unit numbers are 1-indexed positions of nested <unit> elements under the root,
+    matching how `srcml --parser-test` numbers them. Stops reading once the highest
+    needed unit has been seen. Returns an empty dict on any parse error so the
+    report still renders without filenames.
+    """
+    if not needed:
+        return {}
+    max_needed = max(needed)
+    result: dict[int, str] = {}
+    count = 0
+    root_seen = False
+
+    try:
+        for event, elem in ET.iterparse(str(archive_path), events=("start", "end")):
+            tag = elem.tag.rpartition("}")[2] or elem.tag
+            if tag != "unit":
+                continue
+            if event == "start":
+                if not root_seen:
+                    root_seen = True
+                    continue
+                count += 1
+                if count in needed:
+                    result[count] = elem.attrib.get("filename", "")
+                if count >= max_needed:
+                    break
+            else:  # end
+                elem.clear()
+    except ET.ParseError:
+        pass
+
+    return result
+
+
 def _split_test_srcml(block_lines: list[str]) -> tuple[str, str]:
     test_idx = None
     srcml_idx = None
@@ -239,7 +278,8 @@ def render_grouped_markdown(report: ParsedReport) -> str:
         if rep.signature:
             lines.append(f"**First differing line:** `{rep.signature[:160]}`")
             lines.append("")
-        lines.append("**Representative diff (unit #" + str(rep.unit) + f", archive `{rep.filename}`):**")
+        header_suffix = f", source `{rep.source_filename}`" if rep.source_filename else f", archive `{rep.filename}`"
+        lines.append(f"**Representative diff (unit #{rep.unit}{header_suffix}):**")
         lines.append("")
         lines.append("```diff")
         for line in rep.test_region.splitlines()[:40]:
@@ -252,7 +292,18 @@ def render_grouped_markdown(report: ParsedReport) -> str:
             lines.append("+ ... (srcml region truncated)")
         lines.append("```")
         lines.append("")
-        if len(failures) > 1:
+        if any(f.source_filename for f in failures):
+            lines.append("**Affected units:**")
+            lines.append("")
+            for f in failures[:21]:
+                if f.source_filename:
+                    lines.append(f"- #{f.unit} — `{f.source_filename}`")
+                else:
+                    lines.append(f"- #{f.unit}")
+            if len(failures) > 21:
+                lines.append(f"- ... ({len(failures) - 21} more)")
+            lines.append("")
+        elif len(failures) > 1:
             other_units = ", ".join(str(f.unit) for f in failures[1:21])
             suffix = "" if len(failures) <= 21 else f", ... ({len(failures) - 21} more)"
             lines.append(f"**Other affected units:** {other_units}{suffix}")
@@ -266,10 +317,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("stdout_path", help="Path to the captured parser-test stdout")
     p.add_argument("--out", default="grouped-failures.md", help="Path for the grouped markdown report")
     p.add_argument("--summary", default="summary.txt", help="Path for the one-line summary")
+    p.add_argument("--archive", default=None,
+                   help="Path to the srcML archive (e.g. baseline.xml). When provided, "
+                        "the report annotates each failing unit with its source filename.")
     args = p.parse_args(argv)
 
     raw = Path(args.stdout_path).read_text(encoding="utf-8", errors="replace")
     report = parse(raw)
+
+    if args.archive and report.failures:
+        needed = {f.unit for f in report.failures}
+        names = lookup_unit_filenames(Path(args.archive), needed)
+        for f in report.failures:
+            f.source_filename = names.get(f.unit, "")
 
     Path(args.summary).write_text(render_summary(report), encoding="utf-8")
     Path(args.out).write_text(render_grouped_markdown(report), encoding="utf-8")
