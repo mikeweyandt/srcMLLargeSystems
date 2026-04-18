@@ -21,6 +21,37 @@
         {"regex": "<argument><expr>([A-Za-z_][A-Za-z0-9_]*)</expr></argument>",
          "replace": "<argument><expr><name>\\1</name></expr></argument>"}
       ]
+    },
+    {
+      "name": "argument-operator-embed",
+      "description": "Bare operator-only argument (e.g. `^`, `^=`, `|`, `&&`) gains an <operator> wrapper inside the new <expr>.",
+      "replacements": [
+        {"regex": "<argument><expr>(\\|\\||&&|[|&^+\\-*/%]=?|~|!)</expr></argument>",
+         "replace": "<argument><expr><operator>\\1</operator></expr></argument>"}
+      ]
+    },
+    {
+      "name": "argument-struct-name-embed",
+      "description": "Bare `struct NAME` argument: the type name gains a <name> wrapper inside the new <expr>, while the `struct` keyword stays bare.",
+      "replacements": [
+        {"regex": "<argument><expr>struct ([A-Za-z_][A-Za-z0-9_]*)</expr></argument>",
+         "replace": "<argument><expr>struct <name>\\1</name></expr></argument>"}
+      ]
+    },
+    {
+      "name": "argument-bare-call-embed",
+      "description": "Bare zero-arg call `NAME()` argument is marked up as <call><name>NAME</name><argument_list>()</argument_list></call> inside the new <expr>.",
+      "replacements": [
+        {"regex": "<argument><expr>([A-Za-z_][A-Za-z0-9_]*)\\(\\)</expr></argument>",
+         "replace": "<argument><expr><call><name>\\1</name><argument_list>()</argument_list></call></expr></argument>"}
+      ]
+    },
+    {
+      "name": "empty-self-closing-argument",
+      "description": "Older srcml emitted empty macro arguments as <argument/>; newer versions omit the element entirely.",
+      "replacements": [
+        ["<argument/>", ""]
+      ]
     }
   ]
 }
