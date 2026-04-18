@@ -60,7 +60,7 @@ class Failure:
     signature: str = ""
     signature_hash: str = ""
     source_filename: str = ""
-    migrated_by: str = ""  # name of the migration pattern that made this failure equivalent
+    migrated_by: list[str] = field(default_factory=list)  # names of the migration patterns that made this failure equivalent
 
 
 @dataclass
@@ -113,16 +113,16 @@ def load_migrations(path: Path) -> list[MigrationPattern]:
     return out
 
 
-def classify_migration(f: Failure, patterns: list[MigrationPattern]) -> str:
-    """Return the name (or composite name) of the pattern(s) that equalize the two regions.
+def classify_migration(f: Failure, patterns: list[MigrationPattern]) -> list[str]:
+    """Return the names of the pattern(s) that equalize the two regions.
 
     Tries each pattern alone first. If none match individually, applies patterns
-    cumulatively in declaration order; if that equalizes and more than one pattern
-    actually changed the text, returns their names joined with '+'.
+    cumulatively in declaration order; if that equalizes, returns the names of
+    every pattern that actually changed the text.
     """
     for p in patterns:
         if p.apply(f.test_region) == f.srcml_region:
-            return p.name
+            return [p.name]
 
     text = f.test_region
     applied: list[str] = []
@@ -131,9 +131,9 @@ def classify_migration(f: Failure, patterns: list[MigrationPattern]) -> str:
         if new_text != text:
             applied.append(p.name)
             text = new_text
-    if text == f.srcml_region and len(applied) > 1:
-        return "+".join(applied)
-    return ""
+    if text == f.srcml_region:
+        return applied
+    return []
 
 
 @dataclass
@@ -340,7 +340,8 @@ def render_grouped_markdown(report: ParsedReport) -> str:
     if migrated:
         by_pattern: dict[str, int] = defaultdict(int)
         for f in migrated:
-            by_pattern[f.migrated_by] += 1
+            for name in f.migrated_by:
+                by_pattern[name] += 1
         lines.append("")
         lines.append("## Migrated failures (suppressed)")
         lines.append("")
