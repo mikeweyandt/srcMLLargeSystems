@@ -10,4 +10,7 @@ name = "jdk"
 repo = "https://github.com/openjdk/jdk.git"
 tag = "jdk-21+35"
 subdir = "src"
+exclude_files = [
+    "src/jdk.jpackage/windows/classes/jdk/jpackage/internal/WixTool.java",
+]
 current_baseline_release = ""

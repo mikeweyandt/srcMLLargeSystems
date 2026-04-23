@@ -9,4 +9,7 @@ version = "1.1.0"
 name = "roslyn"
 repo = "https://github.com/dotnet/roslyn.git"
 tag = "Visual-Studio-2022-Version-17.11"
+exclude_files = [
+    "src/Features/TestUtilities/EditAndContinue/SemanticEditDescription.cs",
+]
 current_baseline_release = ""
