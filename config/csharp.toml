@@ -1,0 +1,12 @@
+schema = 2
+language = "csharp"
+srcml_flags = ["-r", "-j", "4", "--src-encoding=UTF-8"]
+
+[srcml]
+version = "1.1.0"
+
+[[projects]]
+name = "roslyn"
+repo = "https://github.com/dotnet/roslyn.git"
+tag = "Visual-Studio-2022-Version-17.11"
+current_baseline_release = ""

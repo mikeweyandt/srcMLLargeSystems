@@ -1,7 +1,7 @@
 # Copy this file into the srcML repo (or any repo that builds srcml) at
 # .github/workflows/large-system-test.yml, then adjust <OWNER> below.
 
-name: Large-system regression (Linux kernel)
+name: Large-system regression
 
 on:
   pull_request:
@@ -48,7 +48,19 @@ jobs:
 
   regression:
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { language: c,      project: linux  }
+          - { language: cpp,    project: llvm   }
+          - { language: csharp, project: roslyn }
+          - { language: java,   project: jdk    }
+          - { language: python, project: django }
     uses: <OWNER>/srcMLLargeSystemTests/.github/workflows/regression-test.yml@mainline
     with:
       srcml-installer-artifact-name: srcml-installer
+      language: ${{ matrix.target.language }}
+      project: ${{ matrix.target.project }}
+      artifact-name: regression-${{ matrix.target.language }}-${{ matrix.target.project }}
       fail-on-regression: true

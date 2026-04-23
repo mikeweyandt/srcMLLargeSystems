@@ -12,8 +12,16 @@ on:
         required: false
         type: string
         default: ""
+      language:
+        description: "Language key — must match a config/<language>.toml file (e.g. c, cpp, csharp, java, python)"
+        required: true
+        type: string
+      project:
+        description: "Project name — must match a [[projects]].name entry in config/<language>.toml"
+        required: true
+        type: string
       baseline-release-tag:
-        description: "Override current_baseline_release from config"
+        description: "Override the per-project current_baseline_release from config"
         required: false
         type: string
         default: ""
@@ -45,8 +53,16 @@ on:
         description: "Run ID of the workflow that uploaded the artifact"
         required: false
         default: ""
+      language:
+        description: "Language key (c, cpp, csharp, java, python)"
+        required: true
+        default: "c"
+      project:
+        description: "Project name from config/<language>.toml"
+        required: true
+        default: "linux"
       baseline-release-tag:
-        description: "Override current_baseline_release"
+        description: "Override the per-project current_baseline_release"
         required: false
         default: ""
       fail-on-regression:
@@ -60,7 +76,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: regression-${{ github.workflow }}-${{ github.ref }}
+  group: regression-${{ github.workflow }}-${{ github.ref }}-${{ inputs.language }}-${{ inputs.project }}
   cancel-in-progress: true
 
 env:
@@ -96,14 +112,26 @@ jobs:
 
       - name: Resolve baseline tag from config
         id: cfg
+        env:
+          LANGUAGE: ${{ inputs.language }}
+          PROJECT: ${{ inputs.project }}
+          TAG_OVERRIDE: ${{ inputs.baseline-release-tag }}
         run: |
           set -euo pipefail
           cd srcml-large-system-tests
-          TAG_OVERRIDE="${{ inputs.baseline-release-tag }}"
+          CFG="config/${LANGUAGE}.toml"
+          if [ ! -f "$CFG" ]; then
+            echo "::error::config file not found: $CFG"
+            exit 1
+          fi
           if [ -n "$TAG_OVERRIDE" ]; then
             TAG="$TAG_OVERRIDE"
           else
-            TAG="$(yq -p toml '.current_baseline_release' config/baseline.toml)"
+            TAG="$(PROJECT="$PROJECT" yq -p toml -r '.projects[] | select(.name == strenv(PROJECT)) | .current_baseline_release' "$CFG")"
+          fi
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "::error::no current_baseline_release configured for ${LANGUAGE}/${PROJECT}. Run baseline-${LANGUAGE}.yml first (or pass baseline-release-tag)."
+            exit 1
           fi
           echo "release_tag=$TAG"          >> "$GITHUB_OUTPUT"
           echo "zst_name=${TAG}.xml.zst"   >> "$GITHUB_OUTPUT"
@@ -177,6 +205,7 @@ jobs:
 
       - name: Summarize
         env:
+          LANGUAGE: ${{ inputs.language }}
           MANIFEST_NAME: ${{ steps.cfg.outputs.manifest_name }}
         run: |
           python3 srcml-large-system-tests/scripts/summarize_parser_test.py \
@@ -184,7 +213,8 @@ jobs:
             --out results/grouped-failures.md \
             --summary results/summary.txt \
             --archive baseline.xml \
-            --migrations srcml-large-system-tests/config/migrations.json
+            --migrations "srcml-large-system-tests/config/migrations.json" \
+            --migrations "srcml-large-system-tests/config/${LANGUAGE}.migrations.json"
           cp "$MANIFEST_NAME" results/
 
       - name: Decide pass/fail
@@ -205,7 +235,7 @@ jobs:
           echo "regressed=$REGRESSED"           >> "$GITHUB_OUTPUT"
           echo "summary=$SUMMARY_LINE"          >> "$GITHUB_OUTPUT"
           {
-            echo "## srcML regression test"
+            echo "## srcML regression test — ${{ inputs.language }}/${{ inputs.project }}"
             echo ""
             echo "- **Baseline:** \`${{ steps.cfg.outputs.release_tag }}\`"
             echo "- **Result:** $([ "$REGRESSED" = "true" ] && echo "regressions found" || echo "clean")"
@@ -226,5 +256,5 @@ jobs:
       - name: Fail on regression
         if: ${{ inputs.fail-on-regression && steps.decide.outputs.regressed == 'true' }}
         run: |
-          echo "::error::srcml --parser-test reported regressions against baseline ${{ steps.cfg.outputs.release_tag }}"
+          echo "::error::srcml --parser-test reported regressions against baseline ${{ steps.cfg.outputs.release_tag }} (${{ inputs.language }}/${{ inputs.project }})"
           exit 1

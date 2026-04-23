@@ -3,9 +3,11 @@ name: Full-pipeline self-test
 # Exercises the whole regression pipeline:
 #   1. Build srcml from source on ubuntu-latest via the ci-ubuntu cmake workflow preset.
 #   2. Collect the .deb produced by CPack.
-#   3. Call this repo's reusable regression-test.yml against the current baseline.
+#   3. Fan out over every (language, project) pair and call the reusable
+#      regression-test.yml against the current baseline of each.
 #
-# Requires: a baseline release must already be published (run baseline.yml first).
+# Requires: a baseline release must already be published for each pair
+# (run the corresponding baseline-<language>.yml workflow first).
 
 on:
   workflow_dispatch:
@@ -14,10 +16,6 @@ on:
         description: "srcML git ref to build (tag, branch, or SHA)"
         required: false
         default: "v1.1.0"
-      baseline_release_tag:
-        description: "Override current_baseline_release (leave empty to use config)"
-        required: false
-        default: ""
       fail_on_regression:
         description: "Fail the workflow if the regression test reports failures"
         required: false
@@ -99,9 +97,19 @@ jobs:
 
   regression:
     needs: build-srcml
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - {language: c, project: linux}
+          - {language: cpp, project: llvm}
+          - {language: csharp, project: roslyn}
+          - {language: java, project: jdk}
+          - {language: python, project: django}
     uses: ./.github/workflows/regression-test.yml
     with:
       srcml-installer-artifact-name: srcml-installer-from-source
-      baseline-release-tag: ${{ inputs.baseline_release_tag }}
+      language: ${{ matrix.target.language }}
+      project: ${{ matrix.target.project }}
       fail-on-regression: ${{ inputs.fail_on_regression }}
-      artifact-name: full-pipeline-regression-results
+      artifact-name: full-pipeline-${{ matrix.target.language }}-${{ matrix.target.project }}

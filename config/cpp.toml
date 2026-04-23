@@ -1,0 +1,12 @@
+schema = 2
+language = "cpp"
+srcml_flags = ["-r", "-j", "4", "--src-encoding=UTF-8"]
+
+[srcml]
+version = "1.1.0"
+
+[[projects]]
+name = "llvm"
+repo = "https://github.com/llvm/llvm-project.git"
+tag = "llvmorg-19.1.0"
+current_baseline_release = ""

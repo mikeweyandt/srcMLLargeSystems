@@ -1,10 +1,12 @@
-schema = 1
+schema = 2
+language = "c"
 srcml_flags = ["-r", "-j", "4", "--src-encoding=UTF-8"]
-current_baseline_release = "baseline-linux-v6.6-srcml-1.1.0"
 
 [srcml]
 version = "1.1.0"
 
-[kernel]
+[[projects]]
+name = "linux"
 repo = "https://github.com/torvalds/linux.git"
 tag = "v6.6"
+current_baseline_release = "baseline-linux-v6.6-srcml-1.1.0"

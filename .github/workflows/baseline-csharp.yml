@@ -1,0 +1,45 @@
+name: Generate baseline — C#
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Project from config/csharp.toml to generate a baseline for"
+        required: true
+        type: choice
+        options:
+          - roslyn
+      srcml_version:
+        description: "Override srcml release version (default: read from config)"
+        required: false
+        default: ""
+      project_tag:
+        description: "Override project tag (default: read from config)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Build the archive but skip publishing a release / opening a PR"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: baseline-csharp-${{ inputs.project }}-${{ inputs.srcml_version }}-${{ inputs.project_tag }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/generate-baseline
+        with:
+          language: csharp
+          project: ${{ inputs.project }}
+          srcml_version_override: ${{ inputs.srcml_version }}
+          project_tag_override: ${{ inputs.project_tag }}
+          dry_run: ${{ inputs.dry_run }}

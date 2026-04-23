@@ -1,0 +1,259 @@
+name: Generate baseline
+description: >
+  Build a srcML baseline archive for a given (language, project) pair,
+  publish it as a GitHub Release, and open a PR updating the per-project
+  current_baseline_release pointer in config/<language>.toml.
+
+inputs:
+  language:
+    description: "Language key — must match a config/<language>.toml file (e.g. c, cpp, csharp, java, python)."
+    required: true
+  project:
+    description: "Project name — must match a [[projects]].name entry in config/<language>.toml."
+    required: true
+  srcml_version_override:
+    description: "Override srcml release version (default: read from config)."
+    required: false
+    default: ""
+  project_tag_override:
+    description: "Override the project's VCS tag (default: read from config)."
+    required: false
+    default: ""
+  dry_run:
+    description: "If 'true', build the archive and upload it as a workflow artifact without creating a release or opening a PR."
+    required: false
+    default: "false"
+  github_token:
+    description: "Token used to publish the release and open the pointer PR. Defaults to GITHUB_TOKEN of the calling workflow."
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install host deps
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y zstd git curl ca-certificates jq
+
+    - name: Install mikefarah yq
+      shell: bash
+      run: |
+        sudo curl -fsSL -o /usr/local/bin/yq \
+          https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+        sudo chmod +x /usr/local/bin/yq
+        yq --version
+
+    - name: Resolve config
+      id: cfg
+      shell: bash
+      env:
+        LANGUAGE: ${{ inputs.language }}
+        PROJECT: ${{ inputs.project }}
+        SV_OVERRIDE: ${{ inputs.srcml_version_override }}
+        PT_OVERRIDE: ${{ inputs.project_tag_override }}
+      run: |
+        set -euo pipefail
+        CFG="config/${LANGUAGE}.toml"
+        if [ ! -f "$CFG" ]; then
+          echo "::error::config file not found: $CFG"
+          exit 1
+        fi
+
+        NAMES="$(yq -p toml -r '.projects[].name' "$CFG")"
+        if ! grep -Fxq "$PROJECT" <<<"$NAMES"; then
+          echo "::error::project '$PROJECT' is not declared under .projects in $CFG"
+          echo "available projects:"
+          printf '  - %s\n' $NAMES
+          exit 1
+        fi
+
+        SV="$(yq -p toml '.srcml.version' "$CFG")"
+        OS="$(lsb_release -rs)"
+        PR="$(PROJECT="$PROJECT" yq -p toml '.projects[] | select(.name == strenv(PROJECT)) | .repo' "$CFG")"
+        PT="$(PROJECT="$PROJECT" yq -p toml '.projects[] | select(.name == strenv(PROJECT)) | .tag' "$CFG")"
+        SUBDIR="$(PROJECT="$PROJECT" yq -p toml '.projects[] | select(.name == strenv(PROJECT)) | .subdir // ""' "$CFG")"
+
+        # Flag precedence: language default + per-project append.
+        LANG_FLAGS="$(yq -p toml -r '.srcml_flags | join(" ")' "$CFG")"
+        PROJ_FLAGS="$(PROJECT="$PROJECT" yq -p toml -r '.projects[] | select(.name == strenv(PROJECT)) | (.srcml_flags_append // []) | join(" ")' "$CFG")"
+        FLAGS="$LANG_FLAGS"
+        [ -n "$PROJ_FLAGS" ] && FLAGS="$FLAGS $PROJ_FLAGS"
+
+        # dispatch overrides
+        [ -n "$SV_OVERRIDE" ] && SV="$SV_OVERRIDE"
+        [ -n "$PT_OVERRIDE" ] && PT="$PT_OVERRIDE"
+
+        TAG="baseline-${LANGUAGE}-${PROJECT}-${PT}-srcml-${SV}"
+
+        {
+          echo "srcml_version=$SV"
+          echo "srcml_os=$OS"
+          echo "project_repo=$PR"
+          echo "project_tag=$PT"
+          echo "project_subdir=$SUBDIR"
+          echo "srcml_flags=$FLAGS"
+          echo "release_tag=$TAG"
+          echo "xml_name=${TAG}.xml"
+          echo "zst_name=${TAG}.xml.zst"
+          echo "manifest_name=${TAG}.manifest.json"
+          echo "log_name=${TAG}.generate.log"
+          echo "config_path=$CFG"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Install pinned srcml release
+      shell: bash
+      env:
+        SV: ${{ steps.cfg.outputs.srcml_version }}
+        OS: ${{ steps.cfg.outputs.srcml_os }}
+      run: |
+        set -euxo pipefail
+        URL="https://github.com/srcML/srcML/releases/download/v${SV}/srcml_${SV}-1_ubuntu${OS}_amd64.deb"
+        curl -fsSL -o srcml.deb "$URL"
+        sudo apt-get install -y ./srcml.deb
+        srcml --version
+
+    - name: Clone project source
+      shell: bash
+      env:
+        PR: ${{ steps.cfg.outputs.project_repo }}
+        PT: ${{ steps.cfg.outputs.project_tag }}
+      run: |
+        set -euxo pipefail
+        git clone --depth 1 --branch "$PT" "$PR" project-src
+
+    - name: Generate baseline archive
+      id: gen
+      shell: bash
+      env:
+        SRCML_BIN: srcml
+        SRCML_FLAGS: ${{ steps.cfg.outputs.srcml_flags }}
+        SUBDIR: ${{ steps.cfg.outputs.project_subdir }}
+        OUTPUT_XML: ${{ steps.cfg.outputs.xml_name }}
+        OUTPUT_ZST: ${{ steps.cfg.outputs.zst_name }}
+        LOG_FILE: ${{ steps.cfg.outputs.log_name }}
+      run: |
+        set -euo pipefail
+        if [ -n "$SUBDIR" ]; then
+          INPUT_DIR="project-src/$SUBDIR"
+          if [ ! -d "$INPUT_DIR" ]; then
+            echo "::error::configured subdir '$SUBDIR' does not exist under the cloned project"
+            exit 1
+          fi
+        else
+          INPUT_DIR="project-src"
+        fi
+        export INPUT_DIR
+        ./scripts/generate_baseline.sh
+
+    - name: Emit manifest
+      id: manifest
+      shell: bash
+      env:
+        LANGUAGE: ${{ inputs.language }}
+        PROJECT: ${{ inputs.project }}
+        SV: ${{ steps.cfg.outputs.srcml_version }}
+        PT: ${{ steps.cfg.outputs.project_tag }}
+        FLAGS: ${{ steps.cfg.outputs.srcml_flags }}
+        RAW: ${{ steps.gen.outputs.raw_bytes }}
+        ZST: ${{ steps.gen.outputs.zst_bytes }}
+        SHA: ${{ steps.gen.outputs.sha256 }}
+        ZST_NAME: ${{ steps.cfg.outputs.zst_name }}
+        MANIFEST_NAME: ${{ steps.cfg.outputs.manifest_name }}
+      run: |
+        jq -n \
+          --arg language      "$LANGUAGE" \
+          --arg project       "$PROJECT" \
+          --arg srcml_version "$SV" \
+          --arg project_tag   "$PT" \
+          --arg flags         "$FLAGS" \
+          --arg asset_name    "$ZST_NAME" \
+          --arg bytes_raw     "$RAW" \
+          --arg bytes_zst     "$ZST" \
+          --arg sha256        "$SHA" \
+          --arg generated_at  "$(date --iso-8601=seconds)" \
+          --arg runner_os     "$(lsb_release -ds 2>/dev/null || uname -a)" \
+          '{
+            language:$language,
+            project:$project,
+            srcml_version:$srcml_version,
+            project_tag:$project_tag,
+            flags:$flags,
+            asset_name:$asset_name,
+            bytes_raw:($bytes_raw|tonumber),
+            bytes_compressed:($bytes_zst|tonumber),
+            sha256:$sha256,
+            generated_at:$generated_at,
+            runner_os:$runner_os
+          }' > "$MANIFEST_NAME"
+        cat "$MANIFEST_NAME"
+
+    - name: Upload scratch artifact (dry_run path)
+      if: ${{ inputs.dry_run == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: baseline-dry-run-${{ steps.cfg.outputs.release_tag }}
+        path: |
+          ${{ steps.cfg.outputs.zst_name }}
+          ${{ steps.cfg.outputs.manifest_name }}
+          ${{ steps.cfg.outputs.log_name }}
+        retention-days: 14
+
+    - name: Publish GitHub Release
+      if: ${{ inputs.dry_run != 'true' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        TAG: ${{ steps.cfg.outputs.release_tag }}
+        LANGUAGE: ${{ inputs.language }}
+        PROJECT: ${{ inputs.project }}
+        SV: ${{ steps.cfg.outputs.srcml_version }}
+        PT: ${{ steps.cfg.outputs.project_tag }}
+        ZST_NAME: ${{ steps.cfg.outputs.zst_name }}
+        MANIFEST_NAME: ${{ steps.cfg.outputs.manifest_name }}
+        LOG_NAME: ${{ steps.cfg.outputs.log_name }}
+      run: |
+        set -euxo pipefail
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          gh release upload "$TAG" "$ZST_NAME" "$MANIFEST_NAME" "$LOG_NAME" --clobber
+        else
+          gh release create "$TAG" \
+            --title "Baseline: ${LANGUAGE}/${PROJECT} ${PT} / srcml ${SV}" \
+            --notes "Baseline srcML archive. language=${LANGUAGE}, project=${PROJECT}, project_tag=${PT}, srcml=${SV}. See ${MANIFEST_NAME} for sha256 and flags." \
+            --latest=false \
+            "$ZST_NAME" "$MANIFEST_NAME" "$LOG_NAME"
+        fi
+
+    - name: Update per-project pointer
+      if: ${{ inputs.dry_run != 'true' }}
+      shell: bash
+      env:
+        CFG: ${{ steps.cfg.outputs.config_path }}
+        PROJECT: ${{ inputs.project }}
+        TAG: ${{ steps.cfg.outputs.release_tag }}
+      run: |
+        yq -i -p toml -o toml '
+          (.projects[] | select(.name == strenv(PROJECT)) | .current_baseline_release) = strenv(TAG)
+        ' "$CFG"
+
+    - name: Open baseline pointer PR
+      if: ${{ inputs.dry_run != 'true' }}
+      uses: peter-evans/create-pull-request@v6
+      with:
+        token: ${{ inputs.github_token }}
+        commit-message: "chore: point ${{ inputs.language }}/${{ inputs.project }} baseline to ${{ steps.cfg.outputs.release_tag }}"
+        branch: baseline-pointer/${{ steps.cfg.outputs.release_tag }}
+        title: "Update baseline pointer → ${{ steps.cfg.outputs.release_tag }}"
+        body: |
+          Automated PR to update `${{ steps.cfg.outputs.config_path }}` → the `[[projects]]` entry for `${{ inputs.project }}`'s `current_baseline_release`.
+
+          - language:     ${{ inputs.language }}
+          - project:      ${{ inputs.project }}
+          - project tag:  ${{ steps.cfg.outputs.project_tag }}
+          - srcml:        ${{ steps.cfg.outputs.srcml_version }}
+          - release tag:  ${{ steps.cfg.outputs.release_tag }}
+
+          Release assets are published. Merge to make downstream runs use this baseline.
+        add-paths: |
+          ${{ steps.cfg.outputs.config_path }}

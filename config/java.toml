@@ -1,0 +1,13 @@
+schema = 2
+language = "java"
+srcml_flags = ["-r", "-j", "4", "--src-encoding=UTF-8"]
+
+[srcml]
+version = "1.1.0"
+
+[[projects]]
+name = "jdk"
+repo = "https://github.com/openjdk/jdk.git"
+tag = "jdk-21+35"
+subdir = "src"
+current_baseline_release = ""

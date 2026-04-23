@@ -1,0 +1,12 @@
+schema = 2
+language = "python"
+srcml_flags = ["-r", "-j", "4", "--src-encoding=UTF-8"]
+
+[srcml]
+version = "1.1.0"
+
+[[projects]]
+name = "django"
+repo = "https://github.com/django/django.git"
+tag = "5.1"
+current_baseline_release = ""

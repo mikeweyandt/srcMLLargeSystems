@@ -424,10 +424,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--archive", default=None,
                    help="Path to the srcML archive (e.g. baseline.xml). When provided, "
                         "the report annotates each failing unit with its source filename.")
-    p.add_argument("--migrations", default=None,
-                   help="Path to a migrations JSON file. Failures whose test region becomes "
-                        "equal to the srcml region after applying a pattern's replacements are "
-                        "classified as migrated and suppressed from the failure-groups section.")
+    p.add_argument("--migrations", action="append", default=None,
+                   help="Path to a migrations JSON file. Repeatable: pass --migrations multiple "
+                        "times to stack patterns (e.g. a global file plus a language-specific one). "
+                        "Patterns are applied in the order the files are given. Failures whose test "
+                        "region becomes equal to the srcml region after applying a pattern's "
+                        "replacements are classified as migrated and suppressed from the "
+                        "failure-groups section.")
     args = p.parse_args(argv)
 
     raw = Path(args.stdout_path).read_text(encoding="utf-8", errors="replace")
@@ -441,7 +444,8 @@ def main(argv: list[str] | None = None) -> int:
 
     patterns: list[MigrationPattern] = []
     if args.migrations:
-        patterns = load_migrations(Path(args.migrations))
+        for path in args.migrations:
+            patterns.extend(load_migrations(Path(path)))
         for f in report.failures:
             f.migrated_by = classify_migration(f, patterns)
 
