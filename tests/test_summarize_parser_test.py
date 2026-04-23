@@ -175,5 +175,62 @@ class StackedMigrations(unittest.TestCase):
             self.assertIn("global-matches-c", md)
 
 
+class ExcludedFilesRendering(unittest.TestCase):
+    """The --manifest flag surfaces baseline.excluded_files in the report."""
+
+    def test_section_rendered_when_list_non_empty(self):
+        report = s.parse(_read("all_pass.stdout"))
+        md = s.render_grouped_markdown(report, excluded_files=["a/b.py", "c/d.py"])
+        self.assertIn("Files excluded from baseline", md)
+        self.assertIn("**Files excluded from baseline**: 2", md)
+        self.assertIn("`a/b.py`", md)
+        self.assertIn("`c/d.py`", md)
+
+    def test_section_absent_when_list_empty(self):
+        report = s.parse(_read("all_pass.stdout"))
+        md = s.render_grouped_markdown(report, excluded_files=[])
+        self.assertNotIn("Files excluded from baseline", md)
+
+    def test_main_reads_excluded_files_from_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            stdout = tmpdir / "parser-test.stdout"
+            stdout.write_text(_read("all_pass.stdout"), encoding="utf-8")
+            manifest = tmpdir / "m.json"
+            manifest.write_text(json.dumps({"excluded_files": ["x/y.py"]}), encoding="utf-8")
+            out = tmpdir / "out.md"
+            summary = tmpdir / "sum.txt"
+
+            rc = s.main([
+                str(stdout),
+                "--out", str(out),
+                "--summary", str(summary),
+                "--manifest", str(manifest),
+            ])
+            self.assertEqual(rc, 0)
+            md = out.read_text(encoding="utf-8")
+            self.assertIn("Files excluded from baseline", md)
+            self.assertIn("`x/y.py`", md)
+
+    def test_main_tolerates_missing_excluded_files_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            stdout = tmpdir / "parser-test.stdout"
+            stdout.write_text(_read("all_pass.stdout"), encoding="utf-8")
+            manifest = tmpdir / "m.json"
+            manifest.write_text(json.dumps({"srcml_version": "1.1.0"}), encoding="utf-8")
+            out = tmpdir / "out.md"
+            summary = tmpdir / "sum.txt"
+
+            rc = s.main([
+                str(stdout),
+                "--out", str(out),
+                "--summary", str(summary),
+                "--manifest", str(manifest),
+            ])
+            self.assertEqual(rc, 0)
+            self.assertNotIn("Files excluded from baseline", out.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()

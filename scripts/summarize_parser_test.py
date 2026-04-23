@@ -304,7 +304,10 @@ def render_summary(report: ParsedReport) -> str:
     return f"total={report.total} failed={report.failed} langs={langs or '-'}\n"
 
 
-def render_grouped_markdown(report: ParsedReport) -> str:
+def render_grouped_markdown(
+    report: ParsedReport,
+    excluded_files: list[str] | tuple[str, ...] = (),
+) -> str:
     lines: list[str] = []
     lines.append("# srcML parser-test regression report")
     lines.append("")
@@ -316,6 +319,8 @@ def render_grouped_markdown(report: ParsedReport) -> str:
     if migrated:
         lines.append(f"- **Suppressed by migrations**: {len(migrated)}")
         lines.append(f"- **Remaining failures**: {len(real)}")
+    if excluded_files:
+        lines.append(f"- **Files excluded from baseline**: {len(excluded_files)}")
 
     if report.per_language_totals:
         lines.append("")
@@ -354,6 +359,18 @@ def render_grouped_markdown(report: ParsedReport) -> str:
             "> These failures had a known markup-level migration pattern applied and, after "
             "substitution, the two sides matched. See `config/migrations.json` for definitions."
         )
+
+    if excluded_files:
+        lines.append("")
+        lines.append("## Files excluded from baseline")
+        lines.append("")
+        lines.append(
+            "These paths were removed from the project source tree before srcml ran, "
+            "per `exclude_files` in `config/<language>.toml`."
+        )
+        lines.append("")
+        for p in excluded_files:
+            lines.append(f"- `{p}`")
 
     if not report.failures:
         lines.append("")
@@ -431,6 +448,10 @@ def main(argv: list[str] | None = None) -> int:
                         "region becomes equal to the srcml region after applying a pattern's "
                         "replacements are classified as migrated and suppressed from the "
                         "failure-groups section.")
+    p.add_argument("--manifest", default=None,
+                   help="Path to the baseline manifest.json. When provided, the report "
+                        "includes the list of files excluded from the baseline source "
+                        "tree (manifest key: excluded_files).")
     args = p.parse_args(argv)
 
     raw = Path(args.stdout_path).read_text(encoding="utf-8", errors="replace")
@@ -449,8 +470,22 @@ def main(argv: list[str] | None = None) -> int:
         for f in report.failures:
             f.migrated_by = classify_migration(f, patterns)
 
+    excluded_files: list[str] = []
+    if args.manifest:
+        try:
+            m = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"warning: could not read --manifest {args.manifest}: {e}", file=sys.stderr)
+        else:
+            raw = m.get("excluded_files") or []
+            if isinstance(raw, list):
+                excluded_files = [str(x) for x in raw]
+
     Path(args.summary).write_text(render_summary(report), encoding="utf-8")
-    Path(args.out).write_text(render_grouped_markdown(report), encoding="utf-8")
+    Path(args.out).write_text(
+        render_grouped_markdown(report, excluded_files=excluded_files),
+        encoding="utf-8",
+    )
 
     sys.stdout.write(render_summary(report))
     return 0

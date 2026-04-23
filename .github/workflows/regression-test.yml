@@ -213,6 +213,7 @@ jobs:
             --out results/grouped-failures.md \
             --summary results/summary.txt \
             --archive baseline.xml \
+            --manifest "$MANIFEST_NAME" \
             --migrations "srcml-large-system-tests/config/migrations.json" \
             --migrations "srcml-large-system-tests/config/${LANGUAGE}.migrations.json"
           cp "$MANIFEST_NAME" results/

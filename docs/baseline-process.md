@@ -61,6 +61,7 @@ Raw srcML of a large project (kernel, LLVM, JDK) is expected in the low-single-d
    tag  = "<vcs-tag>"
    # subdir = "relative/path"            # optional
    # srcml_flags_append = ["--flag"]     # optional
+   # exclude_files = ["path/to/problematic.py"]   # optional; rm'd after clone (warn-if-missing)
    current_baseline_release = ""
    ```
 2. Add the new `<short-name>` to the `project:` choice `options:` list in `.github/workflows/baseline-<language>.yml`.

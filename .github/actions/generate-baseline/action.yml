@@ -81,6 +81,8 @@ runs:
         FLAGS="$LANG_FLAGS"
         [ -n "$PROJ_FLAGS" ] && FLAGS="$FLAGS $PROJ_FLAGS"
 
+        EXCLUDES="$(PROJECT="$PROJECT" yq -p toml -r '.projects[] | select(.name == strenv(PROJECT)) | (.exclude_files // []) | .[]' "$CFG")"
+
         # dispatch overrides
         [ -n "$SV_OVERRIDE" ] && SV="$SV_OVERRIDE"
         [ -n "$PT_OVERRIDE" ] && PT="$PT_OVERRIDE"
@@ -100,6 +102,11 @@ runs:
           echo "manifest_name=${TAG}.manifest.json"
           echo "log_name=${TAG}.generate.log"
           echo "config_path=$CFG"
+        } >> "$GITHUB_OUTPUT"
+        {
+          echo "exclude_files<<__EOF__"
+          printf '%s\n' "$EXCLUDES"
+          echo "__EOF__"
         } >> "$GITHUB_OUTPUT"
 
     - name: Install pinned srcml release
@@ -122,6 +129,38 @@ runs:
       run: |
         set -euxo pipefail
         git clone --depth 1 --branch "$PT" "$PR" project-src
+
+    - name: Apply file exclusions
+      id: exclusions
+      shell: bash
+      env:
+        EXCLUDE_FILES: ${{ steps.cfg.outputs.exclude_files }}
+      run: |
+        set -euo pipefail
+        REMOVED=()
+        if [ -n "${EXCLUDE_FILES//[[:space:]]/}" ]; then
+          while IFS= read -r rel; do
+            [ -z "$rel" ] && continue
+            target="project-src/$rel"
+            if [ ! -e "$target" ]; then
+              echo "::warning::exclude_files entry not found in cloned source; skipping: $rel"
+              continue
+            fi
+            rm -v -- "$target"
+            REMOVED+=("$rel")
+          done <<< "$EXCLUDE_FILES"
+        fi
+        echo "Removed ${#REMOVED[@]} file(s)."
+        if [ "${#REMOVED[@]}" -eq 0 ]; then
+          removed_json='[]'
+        else
+          removed_json="$(printf '%s\n' "${REMOVED[@]}" | jq -R . | jq -cs .)"
+        fi
+        {
+          echo "removed_json<<__EOF__"
+          echo "$removed_json"
+          echo "__EOF__"
+        } >> "$GITHUB_OUTPUT"
 
     - name: Generate baseline archive
       id: gen
@@ -161,25 +200,28 @@ runs:
         SHA: ${{ steps.gen.outputs.sha256 }}
         ZST_NAME: ${{ steps.cfg.outputs.zst_name }}
         MANIFEST_NAME: ${{ steps.cfg.outputs.manifest_name }}
+        EXCLUDED_FILES: ${{ steps.exclusions.outputs.removed_json }}
       run: |
         jq -n \
-          --arg language      "$LANGUAGE" \
-          --arg project       "$PROJECT" \
-          --arg srcml_version "$SV" \
-          --arg project_tag   "$PT" \
-          --arg flags         "$FLAGS" \
-          --arg asset_name    "$ZST_NAME" \
-          --arg bytes_raw     "$RAW" \
-          --arg bytes_zst     "$ZST" \
-          --arg sha256        "$SHA" \
-          --arg generated_at  "$(date --iso-8601=seconds)" \
-          --arg runner_os     "$(lsb_release -ds 2>/dev/null || uname -a)" \
+          --arg     language       "$LANGUAGE" \
+          --arg     project        "$PROJECT" \
+          --arg     srcml_version  "$SV" \
+          --arg     project_tag    "$PT" \
+          --arg     flags          "$FLAGS" \
+          --arg     asset_name     "$ZST_NAME" \
+          --arg     bytes_raw      "$RAW" \
+          --arg     bytes_zst      "$ZST" \
+          --arg     sha256         "$SHA" \
+          --arg     generated_at   "$(date --iso-8601=seconds)" \
+          --arg     runner_os      "$(lsb_release -ds 2>/dev/null || uname -a)" \
+          --argjson excluded_files "$EXCLUDED_FILES" \
           '{
             language:$language,
             project:$project,
             srcml_version:$srcml_version,
             project_tag:$project_tag,
             flags:$flags,
+            excluded_files:$excluded_files,
             asset_name:$asset_name,
             bytes_raw:($bytes_raw|tonumber),
             bytes_compressed:($bytes_zst|tonumber),
@@ -219,7 +261,7 @@ runs:
           gh release upload "$TAG" "$ZST_NAME" "$MANIFEST_NAME" "$LOG_NAME" --clobber
         else
           gh release create "$TAG" \
-            --title "Baseline: ${LANGUAGE}/${PROJECT} ${PT} / srcml ${SV}" \
+            --title "${LANGUAGE} | ${PROJECT}/${PT} | srcml/v${SV}" \
             --notes "Baseline srcML archive. language=${LANGUAGE}, project=${PROJECT}, project_tag=${PT}, srcml=${SV}. See ${MANIFEST_NAME} for sha256 and flags." \
             --latest=false \
             "$ZST_NAME" "$MANIFEST_NAME" "$LOG_NAME"
