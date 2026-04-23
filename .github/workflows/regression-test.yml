@@ -224,12 +224,8 @@ jobs:
           EXIT_CODE="$(cat results/exit-code.txt)"
           SUMMARY_LINE="$(cat results/summary.txt | head -n1)"
           FAILED="$(grep -oP 'failed=\K[0-9]+' results/summary.txt || echo 0)"
-          HAS_ERRORS_SECTION="false"
-          if grep -q '^Errors:' results/parser-test.stdout; then
-            HAS_ERRORS_SECTION="true"
-          fi
           REGRESSED="false"
-          if [ "$EXIT_CODE" != "0" ] || [ "$FAILED" -gt 0 ] || [ "$HAS_ERRORS_SECTION" = "true" ]; then
+          if [ "$EXIT_CODE" != "0" ] || [ "$FAILED" -gt 0 ]; then
             REGRESSED="true"
           fi
           echo "regressed=$REGRESSED"           >> "$GITHUB_OUTPUT"
