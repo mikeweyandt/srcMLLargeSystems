@@ -2,7 +2,7 @@ name: Self-test
 
 on:
   push:
-    branches: [mainline]
+    branches: [develop]
   pull_request:
 
 permissions:
