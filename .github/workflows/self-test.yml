@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   grouper-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,7 +20,7 @@ jobs:
         run: python3 -m unittest discover -s tests -v
 
   shellcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck
@@ -30,7 +30,7 @@ jobs:
           shellcheck scripts/*.sh
 
   yamllint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - name: Validate workflow YAML

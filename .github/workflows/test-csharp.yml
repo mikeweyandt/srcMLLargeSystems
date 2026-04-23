@@ -1,7 +1,7 @@
 name: Test — C#
 
 # Exercises the whole regression pipeline for C#:
-#   1. Build srcml from source on ubuntu-latest via the ci-ubuntu cmake workflow preset.
+#   1. Build srcml from source on ubuntu-24.04-arm via the ci-ubuntu cmake workflow preset.
 #   2. Collect the .deb produced by CPack.
 #   3. Run the reusable regression-test.yml against the current C# baselines.
 #
@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   build-srcml:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     outputs:
       artifact_name: ${{ steps.upload.outputs.artifact-name }}

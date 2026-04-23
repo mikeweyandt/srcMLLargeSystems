@@ -86,7 +86,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
     outputs:
       regressed: ${{ steps.decide.outputs.regressed }}
@@ -105,8 +105,9 @@ jobs:
 
       - name: Install mikefarah yq
         run: |
+          ARCH="$(dpkg --print-architecture)"
           sudo curl -fsSL -o /usr/local/bin/yq \
-            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+            "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${ARCH}"
           sudo chmod +x /usr/local/bin/yq
           yq --version
 

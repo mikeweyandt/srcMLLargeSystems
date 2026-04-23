@@ -40,8 +40,9 @@ runs:
     - name: Install mikefarah yq
       shell: bash
       run: |
+        ARCH="$(dpkg --print-architecture)"
         sudo curl -fsSL -o /usr/local/bin/yq \
-          https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${ARCH}"
         sudo chmod +x /usr/local/bin/yq
         yq --version
 
@@ -116,7 +117,8 @@ runs:
         OS: ${{ steps.cfg.outputs.srcml_os }}
       run: |
         set -euxo pipefail
-        URL="https://github.com/srcML/srcML/releases/download/v${SV}/srcml_${SV}-1_ubuntu${OS}_amd64.deb"
+        ARCH="$(dpkg --print-architecture)"
+        URL="https://github.com/srcML/srcML/releases/download/v${SV}/srcml_${SV}-1_ubuntu${OS}_${ARCH}.deb"
         curl -fsSL -o srcml.deb "$URL"
         sudo apt-get install -y ./srcml.deb
         srcml --version
