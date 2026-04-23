@@ -1,0 +1,110 @@
+name: Test — C
+
+# Exercises the whole regression pipeline for C:
+#   1. Build srcml from source on ubuntu-latest via the ci-ubuntu cmake workflow preset.
+#   2. Collect the .deb produced by CPack.
+#   3. Run the reusable regression-test.yml against the current C baselines.
+#
+# Requires: a baseline release must already be published for each project
+# (run baseline-c.yml first).
+
+on:
+  workflow_dispatch:
+    inputs:
+      srcml_ref:
+        description: "srcML git ref to build (tag, branch, or SHA)"
+        required: false
+        default: "v1.1.0"
+      fail_on_regression:
+        description: "Fail the workflow if the regression test reports failures"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: test-c-${{ github.ref }}-${{ inputs.srcml_ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-srcml:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      artifact_name: ${{ steps.upload.outputs.artifact-name }}
+    steps:
+      - name: Checkout srcML source
+        uses: actions/checkout@v4
+        with:
+          repository: srcML/srcML
+          ref: ${{ inputs.srcml_ref }}
+          path: srcML
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            antlr libantlr-dev libantlr-java \
+            libarchive-dev libcurl4-openssl-dev \
+            libxml2-dev libxml2-utils libxslt1-dev \
+            cmake ninja-build g++ dpkg-dev
+
+      - name: Run cmake ci-ubuntu workflow preset
+        id: cmake_workflow
+        working-directory: srcML
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+          cmake --workflow --preset ci-ubuntu
+
+      - name: Locate .deb artifacts
+        id: locate
+        run: |
+          set -euo pipefail
+          # ci-ubuntu uses ci-sibling-build -> build dir is srcML-build/ alongside srcML/
+          BUILD_DIR="srcML-build"
+          DIST_DIR="${BUILD_DIR}/dist"
+          if [ ! -d "$DIST_DIR" ]; then
+            echo "::error::CPack output directory not found: $DIST_DIR"
+            echo "cmake workflow outcome: ${{ steps.cmake_workflow.outcome }}"
+            ls -la "$BUILD_DIR" || true
+            exit 1
+          fi
+          ls -la "$DIST_DIR"
+
+          mkdir -p installer
+          # srcml_*.deb is required; srcml-dev_*.deb is optional
+          if ! compgen -G "${DIST_DIR}/srcml_*.deb" > /dev/null; then
+            echo "::error::no srcml_*.deb produced by CPack"
+            exit 1
+          fi
+          cp "${DIST_DIR}"/srcml_*.deb        installer/
+          cp "${DIST_DIR}"/srcml-dev_*.deb    installer/ 2>/dev/null || true
+          ls -la installer/
+          echo "deb_count=$(ls installer/*.deb | wc -l)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload installer artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: srcml-installer-from-source
+          path: installer/
+          if-no-files-found: error
+
+  regression:
+    needs: build-srcml
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - {language: c, project: linux}
+    uses: ./.github/workflows/regression-test.yml
+    with:
+      srcml-installer-artifact-name: srcml-installer-from-source
+      language: ${{ matrix.target.language }}
+      project: ${{ matrix.target.project }}
+      fail-on-regression: ${{ inputs.fail_on_regression }}
+      artifact-name: full-pipeline-${{ matrix.target.language }}-${{ matrix.target.project }}
