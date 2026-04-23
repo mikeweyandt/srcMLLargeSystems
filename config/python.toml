@@ -4,9 +4,8 @@ srcml_flags = ["-r", "-j", "4", "--src-encoding=UTF-8"]
 
 [srcml]
 version = "1.1.0"
-
 [[projects]]
 name = "django"
 repo = "https://github.com/django/django.git"
 tag = "5.1"
-current_baseline_release = ""
+current_baseline_release = "baseline-python-django-5.1-srcml-1.1.0"
