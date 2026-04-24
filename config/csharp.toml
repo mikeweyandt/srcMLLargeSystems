@@ -4,13 +4,9 @@ srcml_flags = ["-r", "-j", "4", "--src-encoding=UTF-8"]
 
 [srcml]
 version = "1.1.0"
-
 [[projects]]
 name = "roslyn"
 repo = "https://github.com/dotnet/roslyn.git"
 tag = "Visual-Studio-2022-Version-17.11"
-exclude_files = [
-    "src/Compilers/CSharp/Test/Symbol/Symbols/TypeTests.cs",
-    "src/Features/TestUtilities/EditAndContinue/SemanticEditDescription.cs",
-]
-current_baseline_release = ""
+exclude_files = ["src/Compilers/CSharp/Test/Symbol/Symbols/TypeTests.cs", "src/Features/TestUtilities/EditAndContinue/SemanticEditDescription.cs"]
+current_baseline_release = "baseline-csharp-roslyn-Visual-Studio-2022-Version-17.11-srcml-1.1.0"
