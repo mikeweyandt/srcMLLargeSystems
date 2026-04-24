@@ -10,6 +10,7 @@ name = "roslyn"
 repo = "https://github.com/dotnet/roslyn.git"
 tag = "Visual-Studio-2022-Version-17.11"
 exclude_files = [
+    "src/Compilers/CSharp/Test/Symbol/Symbols/TypeTests.cs",
     "src/Features/TestUtilities/EditAndContinue/SemanticEditDescription.cs",
 ]
 current_baseline_release = ""
