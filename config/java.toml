@@ -129,5 +129,9 @@ exclude_files = [
     "test/langtools/tools/javac/patterns/scope/TEST.properties",
     "test/langtools/tools/javac/platform/NumericalComparatorTest.java",
     "test/langtools/tools/javac/recovery/ClassBlockExits.java",
+    "src/hotspot/share/runtime/continuationFreezeThaw.cpp",
+    "test/langtools/tools/javac/annotations/typeAnnotations/classfile/TestNewCastArray.java",
+    "test/langtools/tools/javac/annotations/typeAnnotations/newlocations/AllLocations.java",
+    "test/langtools/tools/javac/lvti/ParserTest.java",
 ]
 current_baseline_release = ""
