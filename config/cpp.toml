@@ -4,32 +4,9 @@ srcml_flags = ["-r", "-j", "4", "--src-encoding=UTF-8"]
 
 [srcml]
 version = "1.1.0"
-
 [[projects]]
 name = "llvm"
 repo = "https://github.com/llvm/llvm-project.git"
 tag = "llvmorg-19.1.0"
-exclude_files = [
-    "clang/lib/Headers/__clang_cuda_intrinsics.h",
-    "clang/test/CXX/basic/basic.start/basic.start.main/p3.cpp",
-    "clang/test/CodeGen/atomic-ops.c",
-    "clang/test/CodeGen/enable_if.c",
-    "clang/test/CodeGenCXX/auto-var-init.cpp",
-    "clang/test/Index/index-attrs.cpp",
-    "clang/test/Parser/atomic.c",
-    "clang/test/Parser/builtin_types_compatible.c",
-    "clang/test/Parser/generic-selection-type-extension.c",
-    "clang/test/Parser/nested_function_prototype_overflow.cpp",
-    "clang/test/Sema/exprs.c",
-    "clang/test/Sema/generic-selection-type-extension.c",
-    "clang/test/Sema/types.c",
-    "clang/test/SemaCXX/type-traits.cpp",
-    "clang/test/SemaTemplate/address_space-dependent.cpp",
-    "clang/test/SemaTemplate/canonical-expr-type.cpp",
-    "clang/test/SemaTemplate/cxx17-inline-variables.cpp",
-    "libcxx/test/libcxx/atomics/atomics.align/align.pass.cpp",
-    "libcxx/test/libcxx/utilities/meta/is_referenceable.pass.cpp",
-    "libcxx/test/std/atomics/atomics.lockfree/is_always_lock_free.cpp",
-    "libcxx/test/std/ranges/range.factories/range.iota.view/ctor.first.last.pass.cpp",
-]
-current_baseline_release = ""
+exclude_files = ["clang/lib/Headers/__clang_cuda_intrinsics.h", "clang/test/CXX/basic/basic.start/basic.start.main/p3.cpp", "clang/test/CodeGen/atomic-ops.c", "clang/test/CodeGen/enable_if.c", "clang/test/CodeGenCXX/auto-var-init.cpp", "clang/test/Index/index-attrs.cpp", "clang/test/Parser/atomic.c", "clang/test/Parser/builtin_types_compatible.c", "clang/test/Parser/generic-selection-type-extension.c", "clang/test/Parser/nested_function_prototype_overflow.cpp", "clang/test/Sema/exprs.c", "clang/test/Sema/generic-selection-type-extension.c", "clang/test/Sema/types.c", "clang/test/SemaCXX/type-traits.cpp", "clang/test/SemaTemplate/address_space-dependent.cpp", "clang/test/SemaTemplate/canonical-expr-type.cpp", "clang/test/SemaTemplate/cxx17-inline-variables.cpp", "libcxx/test/libcxx/atomics/atomics.align/align.pass.cpp", "libcxx/test/libcxx/utilities/meta/is_referenceable.pass.cpp", "libcxx/test/std/atomics/atomics.lockfree/is_always_lock_free.cpp", "libcxx/test/std/ranges/range.factories/range.iota.view/ctor.first.last.pass.cpp"]
+current_baseline_release = "baseline-cpp-llvm-llvmorg-19.1.0-srcml-1.1.0"
