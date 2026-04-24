@@ -66,7 +66,7 @@ jobs:
           - { language: csharp, project: roslyn }
           - { language: java,   project: jdk    }
           - { language: python, project: django }
-    uses: <OWNER>/srcMLLargeSystemTests/.github/workflows/regression-test.yml@mainline
+    uses: <OWNER>/srcMLLargeSystems/.github/workflows/regression-test.yml@mainline
     with:
       srcml-installer-artifact-name: srcml-installer
       language: ${{ matrix.target.language }}

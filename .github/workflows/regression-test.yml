@@ -82,7 +82,7 @@ concurrency:
 env:
   # hardcoded so cross-repo `gh release download` works regardless of caller.
   # update if this repo is transferred to a different org.
-  BASELINE_REPO: ${{ github.repository_owner }}/srcMLLargeSystemTests
+  BASELINE_REPO: ${{ github.repository_owner }}/srcMLLargeSystems
 
 jobs:
   test:

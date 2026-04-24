@@ -11,10 +11,14 @@ name: Test — Java
 on:
   workflow_dispatch:
     inputs:
+      srcml_repo:
+        description: "srcML repository to build from (owner/repo — supports forks)"
+        required: false
+        default: "srcML/srcML"
       srcml_ref:
         description: "srcML git ref to build (tag, branch, or SHA)"
         required: false
-        default: "v1.1.0"
+        default: "develop"
       fail_on_regression:
         description: "Fail the workflow if the regression test reports failures"
         required: false
@@ -39,7 +43,7 @@ jobs:
       - name: Checkout srcML source
         uses: actions/checkout@v4
         with:
-          repository: srcML/srcML
+          repository: ${{ inputs.srcml_repo }}
           ref: ${{ inputs.srcml_ref }}
           path: srcML
 

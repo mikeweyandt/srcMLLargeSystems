@@ -1,4 +1,4 @@
-# srcMLLargeSystemTests
+# srcMLLargeSystems
 
 Regression testing for [srcML](https://www.srcml.org/) against large real-world codebases across C, C++, C#, Java, and Python.
 
